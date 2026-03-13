@@ -1,97 +1,62 @@
-<?php
-
-session_start();
-
-/* ================= CORS HEADERS ================= */
+<?php ob_start();
 
 header("Access-Control-Allow-Origin: http://localhost:3000");
 header("Access-Control-Allow-Credentials: true");
 header("Access-Control-Allow-Methods: GET, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type");
+header("Access-Control-Allow-Headers: Content-Type, X-Requested-With");
 header("Content-Type: application/json");
 
-/* ================= HANDLE PRE-FLIGHT ================= */
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { ob_end_clean(); http_response_code(200); exit(); }
 
-if ($_SERVER['REQUEST_METHOD'] === "OPTIONS") {
-    http_response_code(200);
-    exit;
+ini_set('session.cookie_samesite', 'Lax');
+ini_set('session.cookie_secure', 0);
+session_set_cookie_params(['lifetime'=>0,'path'=>'/','domain'=>'localhost','secure'=>false,'httponly'=>true,'samesite'=>'Lax']);
+session_start();
+
+if (!isset($_SESSION['user_id'])) {
+    ob_end_clean(); http_response_code(401);
+    echo json_encode(["success" => false, "error" => "Not authenticated"]); exit;
 }
 
-/* ================= DATABASE ================= */
-
-require_once __DIR__ . "/../config/db.php";
-
+require_once "../config/db.php";
 use Config\Database;
 
 try {
-    $db = (new Database())->connect();
-} catch (Exception $e) {
+    $db     = (new Database())->connect();
+    $userId = (int) $_SESSION['user_id'];
 
-    http_response_code(500);
-    echo json_encode([
-        "success" => false,
-        "error" => "Database connection failed"
-    ]);
-    exit;
-}
-
-/* ================= CHECK LOGIN ================= */
-
-if (!isset($_SESSION['user_id'])) {
-
-    http_response_code(401);
-
-    echo json_encode([
-        "success" => false,
-        "error" => "Unauthorized - No session"
-    ]);
-
-    exit;
-}
-
-$user_id = $_SESSION['user_id'];
-
-/* ================= FETCH NOTIFICATIONS ================= */
-
-try {
-
+    /* Fetch from notifications table — role-based: user-specific OR broadcast (user_id IS NULL) */
     $stmt = $db->prepare("
-        SELECT *
+        SELECT
+            id,
+            title,
+            message,
+            type,
+            priority,
+            is_read,
+            created_at
         FROM notifications
-        WHERE user_id = ?
+        WHERE (user_id = ? OR user_id IS NULL)
         ORDER BY created_at DESC
+        LIMIT 60
     ");
+    $stmt->execute([$userId]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    $stmt->execute([$user_id]);
-    $notifications = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $notifications = array_map(fn($r) => [
+        'id'         => (int) $r['id'],
+        'title'      => $r['title'],
+        'message'    => $r['message'],
+        'type'       => $r['type']     ?? 'Alert',
+        'priority'   => $r['priority'] ?? 'Medium',
+        'is_read'    => (int) ($r['is_read'] ?? 0),
+        'created_at' => $r['created_at'],
+    ], $rows);
 
-    /* ================= COUNT UNREAD ================= */
+    ob_end_clean();
+    echo json_encode(["success" => true, "notifications" => $notifications]);
 
-    $unreadStmt = $db->prepare("
-        SELECT COUNT(*)
-        FROM notifications
-        WHERE user_id = ?
-        AND is_read = 0
-    ");
-
-    $unreadStmt->execute([$user_id]);
-    $unreadCount = $unreadStmt->fetchColumn();
-
-    /* ================= RETURN RESPONSE ================= */
-
-    echo json_encode([
-        "success" => true,
-        "logged_user" => $user_id,
-        "unread_count" => (int)$unreadCount,
-        "notifications" => $notifications
-    ]);
-
-} catch (Exception $e) {
-
-    http_response_code(500);
-
-    echo json_encode([
-        "success" => false,
-        "error" => "Failed to fetch notifications"
-    ]);
+} catch (Throwable $e) {
+    ob_end_clean(); http_response_code(500);
+    echo json_encode(["success" => false, "error" => $e->getMessage()]);
 }

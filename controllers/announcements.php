@@ -1,122 +1,54 @@
-<?php
-
-use Config\Database;
-
-session_start();
-
-/* ================= CORS HEADERS ================= */
+<?php ob_start();
 
 header("Access-Control-Allow-Origin: http://localhost:3000");
 header("Access-Control-Allow-Credentials: true");
-header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type");
-
+header("Access-Control-Allow-Methods: GET, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type, X-Requested-With");
 header("Content-Type: application/json");
 
-/* ================= HANDLE PREFLIGHT REQUEST ================= */
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { ob_end_clean(); http_response_code(200); exit(); }
 
-if ($_SERVER['REQUEST_METHOD'] === "OPTIONS") {
-    http_response_code(200);
-    exit;
+ini_set('session.cookie_samesite', 'Lax');
+ini_set('session.cookie_secure', 0);
+session_set_cookie_params(['lifetime'=>0,'path'=>'/','domain'=>'localhost','secure'=>false,'httponly'=>true,'samesite'=>'Lax']);
+session_start();
+
+if (!isset($_SESSION['user_id'])) {
+    ob_end_clean(); http_response_code(401);
+    echo json_encode(["success" => false, "error" => "Not authenticated"]); exit;
 }
 
-/* ================= IMPORT DATABASE ================= */
+require_once "../config/db.php";
+use Config\Database;
 
-require_once __DIR__ . "/../config/db.php";
+try {
+    $db = (new Database())->connect();
 
-$db = (new Database())->connect();
-
-/* ================= GET ANNOUNCEMENTS ================= */
-
-if ($_SERVER['REQUEST_METHOD'] === "GET") {
-
-    try {
-
-        $stmt = $db->prepare("
-            SELECT 
-                a.*,
-                u.full_name AS creator_name
-            FROM announcements a
-            LEFT JOIN users u ON a.created_by = u.id
-            ORDER BY a.created_at DESC
-        ");
-
-        $stmt->execute();
-
-        echo json_encode([
-            "success" => true,
-            "announcements" => $stmt->fetchAll(PDO::FETCH_ASSOC)
-        ]);
-
-    } catch (Exception $e) {
-
-        http_response_code(500);
-
-        echo json_encode([
-            "success" => false,
-            "error" => "Failed to fetch announcements"
-        ]);
-    }
-}
-
-/* ================= CREATE ANNOUNCEMENT ================= */
-
-if ($_SERVER['REQUEST_METHOD'] === "POST") {
+    /* Try announcements table — fall back gracefully if it doesn't exist yet */
+    $announcements = [];
 
     try {
-
-        /* === AUTH CHECK === */
-
-        if (!isset($_SESSION['user_id'])) {
-            http_response_code(401);
-
-            echo json_encode([
-                "success" => false,
-                "error" => "Unauthorized"
-            ]);
-
-            exit;
-        }
-
-        $data = json_decode(file_get_contents("php://input"));
-
-        if (!$data || empty($data->title) || empty($data->message)) {
-
-            http_response_code(400);
-
-            echo json_encode([
-                "success" => false,
-                "error" => "Title and message are required"
-            ]);
-
-            exit;
-        }
-
-        $stmt = $db->prepare("
-            INSERT INTO announcements
-            (title, message, created_by, target_role)
-            VALUES (?, ?, ?, ?)
+        $stmt = $db->query("
+            SELECT id, title, message, created_at
+            FROM   announcements
+            ORDER  BY created_at DESC
+            LIMIT  40
         ");
-
-        $stmt->execute([
-            htmlspecialchars($data->title),
-            htmlspecialchars($data->message),
-            $_SESSION['user_id'],
-            $data->target_role ?? "ALL"
-        ]);
-
-        echo json_encode([
-            "success" => true,
-            "message" => "Announcement created successfully"
-        ]);
-
-    } catch (Exception $e) {
-
-        http_response_code(500);
-
-        echo json_encode([
-            "success" => false,
-            "error" => "Server error occurred"
-        ]);
+        $announcements = array_map(fn($r) => [
+            'id'         => (int) $r['id'],
+            'title'      => $r['title'],
+            'message'    => $r['message'],
+            'created_at' => $r['created_at'],
+        ], $stmt->fetchAll(PDO::FETCH_ASSOC));
+    } catch (Throwable) {
+        /* Table doesn't exist — return empty array, not an error */
+        $announcements = [];
     }
+
+    ob_end_clean();
+    echo json_encode(["success" => true, "announcements" => $announcements]);
+
+} catch (Throwable $e) {
+    ob_end_clean(); http_response_code(500);
+    echo json_encode(["success" => false, "error" => $e->getMessage()]);
 }

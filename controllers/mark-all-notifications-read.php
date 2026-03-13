@@ -2,7 +2,7 @@
 
 header("Access-Control-Allow-Origin: http://localhost:3000");
 header("Access-Control-Allow-Credentials: true");
-header("Access-Control-Allow-Methods: GET, OPTIONS");
+header("Access-Control-Allow-Methods: POST, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, X-Requested-With");
 header("Content-Type: application/json");
 
@@ -25,33 +25,15 @@ try {
     $db     = (new Database())->connect();
     $userId = (int) $_SESSION['user_id'];
 
-    /* Fetch messages received by this user, join sender's full_name */
-    $stmt = $db->prepare("
-        SELECT
-            m.id,
-            COALESCE(u.full_name, 'Unknown') AS sender,
-            m.message,
-            m.is_read,
-            m.created_at
-        FROM  messages m
-        LEFT  JOIN users u ON u.id = m.sender_id
-        WHERE m.receiver_id = ?
-        ORDER BY m.created_at DESC
-        LIMIT 60
-    ");
-    $stmt->execute([$userId]);
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    $messages = array_map(fn($r) => [
-        'id'         => (int) $r['id'],
-        'sender'     => $r['sender'],
-        'message'    => $r['message'],
-        'is_read'    => (int) ($r['is_read'] ?? 0),
-        'created_at' => $r['created_at'],
-    ], $rows);
+    $db->prepare("
+        UPDATE notifications
+        SET    is_read = 1
+        WHERE  (user_id = ? OR user_id IS NULL)
+        AND    is_read  = 0
+    ")->execute([$userId]);
 
     ob_end_clean();
-    echo json_encode(["success" => true, "messages" => $messages]);
+    echo json_encode(["success" => true]);
 
 } catch (Throwable $e) {
     ob_end_clean(); http_response_code(500);
