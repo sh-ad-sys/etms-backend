@@ -1,9 +1,13 @@
 <?php ob_start();
 
-header("Access-Control-Allow-Origin: http://localhost:3000");
+/* ================= CORS ================= */
+
+// Get allowed origin from environment or use default
+$allowedOrigin = getenv('CORS_ORIGIN') ?: 'http://localhost:3000';
+header("Access-Control-Allow-Origin: " . $allowedOrigin);
 header("Access-Control-Allow-Credentials: true");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, X-Requested-With");
+header("Access-Control-Allow-Headers: Content-Type, X-Requested-With, Authorization");
 header("Content-Type: application/json");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { ob_end_clean(); http_response_code(200); exit(); }

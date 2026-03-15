@@ -6,10 +6,12 @@ session_start();
 
 /* ================= CORS HEADERS ================= */
 
-header("Access-Control-Allow-Origin: http://localhost:3000");
+// Get allowed origin from environment or use default
+$allowedOrigin = getenv('CORS_ORIGIN') ?: 'http://localhost:3000';
+header("Access-Control-Allow-Origin: " . $allowedOrigin);
 header("Access-Control-Allow-Credentials: true");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
 
 header("Content-Type: application/json");
 
