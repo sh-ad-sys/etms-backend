@@ -1,0 +1,15 @@
+{
+  "name": "etms-server",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "dependencies": {
+    "express": "latest",
+    "cors": "latest",
+    "mysql2": "latest",
+    "bcryptjs": "latest"
+  }
+}
