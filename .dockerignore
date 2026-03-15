@@ -1,0 +1,9 @@
+# Ignore unnecessary files
+*.md
+.git
+.gitignore
+.vscode
+node_modules/
+vendor/
+*.log
+.DS_Store
