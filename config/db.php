@@ -5,21 +5,46 @@ use PDO;
 use PDOException;
 
 class Database {
-    private $host = "localhost";
-    private $dbname = "etms";
-    private $username = "root";
-    private $password = "Shadrack2024.";
+    // Use environment variables for deployment (Render/Aiven)
+    private $host;
+    private $dbname;
+    private $username;
+    private $password;
+    private $port;
     public $conn;
 
     public function connect() {
+        // Get from environment variables (Render/Aiven) or fallback to local XAMPP
+        $this->host = getenv('DB_HOST') ?: 'localhost';
+        $this->dbname = getenv('DB_NAME') ?: 'etms';
+        $this->username = getenv('DB_USER') ?: 'root';
+        $this->password = getenv('DB_PASS') ?: 'Shadrack2024.';
+        $this->port = getenv('DB_PORT') ?: '3306';
+
         try {
+            // Check if SSL is required (for Aiven)
+            $ssl = getenv('DB_SSL');
+            
+            $dsn = "mysql:host={$this->host};port={$this->port};dbname={$this->dbname};charset=utf8";
+            
+            $options = [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            ];
+            
+            // Enable SSL for Aiven if required
+            if ($ssl === 'true' || $ssl === '1') {
+                $options[PDO::MYSQL_ATTR_SSL_CA] = null;
+                $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = false;
+            }
+
             $this->conn = new PDO(
-                "mysql:host={$this->host};dbname={$this->dbname};charset=utf8",
+                $dsn,
                 $this->username,
-                $this->password
+                $this->password,
+                $options
             );
 
-            $this->conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
             return $this->conn;
 
         } catch (PDOException $e) {
