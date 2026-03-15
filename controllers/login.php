@@ -8,7 +8,7 @@ error_reporting(E_ALL);
 
 header("Access-Control-Allow-Origin: http://localhost:3000");
 header("Access-Control-Allow-Credentials: true");
-header("Access-Control-Allow-Headers: Content-Type");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
 header("Content-Type: application/json");
 
@@ -19,25 +19,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit();
 }
 
-/* ================= SESSION CONFIG ================= */
-
-session_set_cookie_params([
-    'lifetime' => 0,
-    'path'     => '/',
-    'domain'   => 'localhost',
-    'secure'   => false,
-    'httponly' => true,
-    'samesite' => 'Lax'
-]);
-
-session_start();
-
 /* ================= DATABASE ================= */
 
 require_once "../config/db.php";
+require_once "../config/jwt.php";
 require_once "../models/User.php";
+require_once "../helpers/device-detect.php";
 
 use Config\Database;
+use Config\JWT;
 use Models\User;
 
 /* ================= GET INPUT ================= */
@@ -91,15 +81,6 @@ if ($user['status'] !== "ACTIVE") {
     exit;
 }
 
-/* ================= SET SESSION ================= */
-
-$_SESSION['user_id']    = $user['id'];
-$_SESSION['user_name']  = $user['full_name'];
-$_SESSION['user_email'] = $user['email'];
-$_SESSION['user_role']  = $user['role_name'];
-
-session_regenerate_id(true);
-
 /* ================= RECORD DEVICE ================= */
 
 try {
@@ -127,44 +108,30 @@ try {
     // Device recording failure must never block login
     error_log("Device record error: " . $e->getMessage());
 }
-require_once "../helpers/create-alert.php";
 
-// New device login (check if device was just inserted vs updated)
-if ($stmt->rowCount() === 1) {   // rowCount=1 means fresh INSERT
-    createAlert($db, $user['id'],
-        'New Device Login',
-        "A new device ({$deviceName}) logged in from IP {$ip}.",
-        'medium'
-    );
-}
+/* ================= GENERATE JWT ================= */
+
+// Create JWT payload with user data
+$payload = [
+    'user_id'   => $user['id'],
+    'email'     => $user['email'],
+    'name'      => $user['full_name'],
+    'role'      => $user['role_name'],
+];
+
+// Generate JWT token
+$token = JWT::encode($payload);
 
 /* ================= SUCCESS RESPONSE ================= */
 
 echo json_encode([
     "success" => true,
     "message" => "Login successful",
+    "token"   => $token,
     "user"    => [
-        "id"    => $user['id'],
-        "name"  => $user['full_name'],
-        "email" => $user['email'],
-        "role"  => $user['role_name']
+        "id"       => $user['id'],
+        "email"    => $user['email'],
+        "fullName" => $user['full_name'],
+        "role"     => $user['role_name'],
     ]
 ]);
-
-/* ================= HELPERS ================= */
-
-function detectDeviceName(string $ua): string
-{
-    $ua = strtolower($ua);
-
-    if (strpos($ua, 'iphone')    !== false) return 'iPhone';
-    if (strpos($ua, 'ipad')      !== false) return 'iPad';
-    if (strpos($ua, 'android')   !== false) {
-        return strpos($ua, 'mobile') !== false ? 'Android Phone' : 'Android Tablet';
-    }
-    if (strpos($ua, 'windows')   !== false) return 'Windows PC';
-    if (strpos($ua, 'macintosh') !== false) return 'Mac';
-    if (strpos($ua, 'linux')     !== false) return 'Linux PC';
-
-    return 'Unknown Device';
-}

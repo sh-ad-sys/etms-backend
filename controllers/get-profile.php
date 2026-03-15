@@ -1,22 +1,32 @@
-<?php ob_start();
+<?php 
+ob_start();
+
+/* ================= CORS ================= */
 
 header("Access-Control-Allow-Origin: http://localhost:3000");
 header("Access-Control-Allow-Credentials: true");
 header("Access-Control-Allow-Methods: GET, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, X-Requested-With");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
 header("Content-Type: application/json");
 
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { ob_end_clean(); http_response_code(200); exit(); }
+/* ================= PRE-FLIGHT ================= */
 
-ini_set('session.cookie_samesite', 'Lax');
-ini_set('session.cookie_secure', 0);
-session_set_cookie_params(['lifetime'=>0,'path'=>'/','domain'=>'localhost','secure'=>false,'httponly'=>true,'samesite'=>'Lax']);
-session_start();
-
-if (!isset($_SESSION['user_id'])) {
-    ob_end_clean(); http_response_code(401);
-    echo json_encode(["success" => false, "error" => "Not authenticated"]); exit;
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { 
+    ob_end_clean(); 
+    http_response_code(200); 
+    exit(); 
 }
+
+/* ================= JWT VALIDATION ================= */
+
+require_once "../config/jwt.php";
+
+use Config\JWT;
+
+// Validate JWT token (this will exit if invalid)
+$payload = JWT::validateRequest();
+
+/* ================= GET PROFILE ================= */
 
 require_once "../config/db.php";
 use Config\Database;
@@ -24,10 +34,8 @@ use Config\Database;
 try {
 
     $db     = (new Database())->connect();
-    $userId = (int) $_SESSION['user_id'];
+    $userId = (int) $payload['user_id'];
 
-    /* Only select columns confirmed to exist in users table.
-       phone already existed; department, avatar added via users_alter_profile.sql migration. */
     $stmt = $db->prepare("
         SELECT
             id,
@@ -45,8 +53,10 @@ try {
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$user) {
-        ob_end_clean(); http_response_code(404);
-        echo json_encode(["success" => false, "error" => "User not found"]); exit;
+        ob_end_clean(); 
+        http_response_code(404);
+        echo json_encode(["success" => false, "error" => "User not found"]); 
+        exit;
     }
 
     ob_end_clean();
@@ -60,11 +70,12 @@ try {
             "phone"        => $user['phone']      ?? '',
             "department"   => $user['department']  ?? '',
             "avatar"       => $user['avatar']      ?? '',
-            "role"         => $_SESSION['user_role'] ?? 'Staff',  // set by login.php from roles table
+            "role"         => $payload['role'] ?? 'Staff',
         ],
     ]);
 
 } catch (Exception $e) {
-    ob_end_clean(); http_response_code(500);
+    ob_end_clean(); 
+    http_response_code(500);
     echo json_encode(["success" => false, "error" => $e->getMessage()]);
 }

@@ -1,15 +1,39 @@
 <?php
+
+ini_set('display_errors', 0);
+error_reporting(E_ALL);
+
+/* ================= CORS ================= */
+
 header("Access-Control-Allow-Origin: http://localhost:3000");
 header("Access-Control-Allow-Credentials: true");
-header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
+header("Access-Control-Allow-Methods: POST, OPTIONS");
+header("Content-Type: application/json");
 
-session_start();
+/* ================= PRE-FLIGHT ================= */
 
-session_unset();
-session_destroy();
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit();
+}
+
+/* ================= JWT VALIDATION ================= */
+
+require_once "../config/jwt.php";
+
+use Config\JWT;
+
+// Validate JWT token (this will exit if invalid)
+$payload = JWT::validateRequest();
+
+/* ================= LOGOUT SUCCESS ================= */
+
+// In JWT, we don't need to do anything server-side
+// The client removes the token from localStorage
+// For blacklist functionality, you would need to store invalidated tokens
 
 echo json_encode([
     "success" => true,
-    "message" => "Logged out"
+    "message" => "Logged out successfully"
 ]);
