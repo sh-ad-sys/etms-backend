@@ -19,6 +19,9 @@ try {
         throw new Exception("Unauthorized");
     }
 
+    $userId = (int) $_SESSION['user_id'];
+    session_write_close();
+
     $db = (new Database())->connect();
 
     $data = json_decode(file_get_contents("php://input"), true);
@@ -26,8 +29,6 @@ try {
     if (!isset($data['token'])) {
         throw new Exception("Missing QR token");
     }
-
-    $userId = $_SESSION['user_id'];
 
     /* ================= VERIFY QR SESSION ================= */
 

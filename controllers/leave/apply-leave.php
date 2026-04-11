@@ -30,6 +30,27 @@ if (!isset($_SESSION['user_id'])) {
 require_once "../../config/db.php";
 use Config\Database;
 
+function ensureHrApprovalColumn(PDO $db): void
+{
+    static $checked = false;
+
+    if ($checked) {
+        return;
+    }
+
+    $column = $db->query("SHOW COLUMNS FROM leave_requests LIKE 'hr_approval'")->fetch(PDO::FETCH_ASSOC);
+
+    if (!$column) {
+        $db->exec("
+            ALTER TABLE leave_requests
+            ADD COLUMN hr_approval VARCHAR(20) NOT NULL DEFAULT 'PENDING'
+            AFTER manager_approval
+        ");
+    }
+
+    $checked = true;
+}
+
 try {
 
     $userId    = (int) $_SESSION['user_id'];
@@ -65,6 +86,7 @@ try {
     $totalDays   = (int) $end->diff($start)->days + 1;
     $dbLeaveType = $typeMap[$leaveType];
     $db          = (new Database())->connect();
+    ensureHrApprovalColumn($db);
 
     /* ── Check overlapping requests ── */
     $overlap = $db->prepare("
@@ -113,10 +135,10 @@ try {
     $stmt = $db->prepare("
         INSERT INTO leave_requests
             (user_id, leave_type, start_date, end_date, reason, document_url,
-             supervisor_approval, manager_approval, final_status)
+             supervisor_approval, manager_approval, hr_approval, final_status)
         VALUES
             (:user_id, :leave_type, :start_date, :end_date, :reason, :document_url,
-             'PENDING', 'PENDING', 'PENDING')
+             'PENDING', 'PENDING', 'PENDING', 'PENDING')
     ");
 
     $stmt->execute([

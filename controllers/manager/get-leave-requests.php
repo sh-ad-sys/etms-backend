@@ -43,15 +43,14 @@ function ensureHrApprovalColumn(PDO $db): void
 }
 
 try {
-
     $db = (new Database())->connect();
     ensureHrApprovalColumn($db);
 
     $filter  = strtoupper($_GET['status'] ?? 'ALL');
     $allowed = ['ALL', 'PENDING', 'APPROVED', 'REJECTED'];
-    if (!in_array($filter, $allowed)) $filter = 'ALL';
+    if (!in_array($filter, $allowed, true)) $filter = 'ALL';
 
-    $where = $filter === 'ALL' ? '' : 'AND lr.supervisor_approval = :status';
+    $where = $filter === 'ALL' ? '' : 'AND lr.manager_approval = :status';
 
     $stmt = $db->prepare("
         SELECT
@@ -71,12 +70,13 @@ try {
             u.employee_code,
             u.department,
             d.name AS department_name
-        FROM  leave_requests lr
-        JOIN  users u ON u.id = lr.user_id
-        LEFT  JOIN departments d ON d.id = u.department_id
-        WHERE 1=1 {$where}
+        FROM leave_requests lr
+        JOIN users u ON u.id = lr.user_id
+        LEFT JOIN departments d ON d.id = u.department_id
+        WHERE lr.supervisor_approval = 'APPROVED'
+          {$where}
         ORDER BY
-            FIELD(lr.supervisor_approval, 'PENDING', 'APPROVED', 'REJECTED'),
+            FIELD(lr.manager_approval, 'PENDING', 'APPROVED', 'REJECTED'),
             lr.created_at DESC
     ");
 
@@ -110,28 +110,27 @@ try {
         ];
     }
 
-    /* Summary */
-    $counts = $db->query("
+    $countsStmt = $db->query("
         SELECT
-            COUNT(*)                                    AS total,
-            SUM(supervisor_approval = 'PENDING')        AS pending,
-            SUM(supervisor_approval = 'APPROVED')       AS approved,
-            SUM(supervisor_approval = 'REJECTED')       AS rejected
+            COUNT(*) AS total,
+            SUM(supervisor_approval = 'APPROVED' AND manager_approval = 'PENDING')  AS pending,
+            SUM(supervisor_approval = 'APPROVED' AND manager_approval = 'APPROVED') AS approved,
+            SUM(supervisor_approval = 'APPROVED' AND manager_approval = 'REJECTED') AS rejected
         FROM leave_requests
-    ")->fetch(PDO::FETCH_ASSOC);
+    ");
+    $counts = $countsStmt->fetch(PDO::FETCH_ASSOC);
 
     ob_end_clean();
     echo json_encode([
         "success"  => true,
         "requests" => $requests,
         "summary"  => [
-            "total"    => (int) $counts['total'],
-            "pending"  => (int) $counts['pending'],
-            "approved" => (int) $counts['approved'],
-            "rejected" => (int) $counts['rejected'],
+            "total"    => (int) ($counts['total'] ?? 0),
+            "pending"  => (int) ($counts['pending'] ?? 0),
+            "approved" => (int) ($counts['approved'] ?? 0),
+            "rejected" => (int) ($counts['rejected'] ?? 0),
         ],
     ]);
-
 } catch (Throwable $e) {
     ob_end_clean(); http_response_code(500);
     echo json_encode(["success" => false, "error" => $e->getMessage()]);

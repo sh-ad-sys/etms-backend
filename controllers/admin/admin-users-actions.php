@@ -19,33 +19,57 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 require_once "../../config/db.php";
-use Config\Database;
+require_once "../../helpers/smtp-mail.php";
+require_once "../../helpers/user-password-policy.php";
 
-/* ── Mail config — swap in real SMTP credentials when ready ── */
-define('MAIL_FROM',      'noreply@royalmabati.co.ke');
-define('MAIL_FROM_NAME', 'Royal Mabati Factory');
-define('APP_URL',        'http://localhost:3000');
+use Config\Database;
 
 function sendInviteEmail(string $toEmail, string $toName, string $tempPassword, string $role): bool {
     $subject  = "Your Royal Mabati Factory Account";
-    $loginUrl = APP_URL . "/login";
+    $loginUrl = rtrim(getenv('FRONTEND_URL') ?: 'http://localhost:3000', '/') . "/";
 
-    $body = "Dear {$toName},\n\n"
+    $textBody = "Dear {$toName},\n\n"
           . "You have been invited to the Royal Mabati Factory Employee Tracking Management System.\n\n"
           . "Your login details:\n"
           . "  Email:    {$toEmail}\n"
           . "  Password: {$tempPassword}\n"
           . "  Role:     {$role}\n\n"
-          . "Please log in and change your password immediately:\n"
+          . "On your first login, you will be required to set a strong password immediately:\n"
           . "{$loginUrl}\n\n"
           . "This is an automated message. Do not reply.\n\n"
           . "Royal Mabati Factory";
 
-    $headers = "From: " . MAIL_FROM_NAME . " <" . MAIL_FROM . ">\r\n"
-             . "Reply-To: " . MAIL_FROM . "\r\n"
-             . "X-Mailer: PHP/" . phpversion();
+    $htmlBody = '<p>Dear ' . htmlspecialchars($toName) . ',</p>'
+          . '<p>You have been invited to the Royal Mabati Factory Employee Tracking Management System.</p>'
+          . '<p><strong>Email:</strong> ' . htmlspecialchars($toEmail) . '<br>'
+          . '<strong>Temporary Password:</strong> ' . htmlspecialchars($tempPassword) . '<br>'
+          . '<strong>Role:</strong> ' . htmlspecialchars($role) . '</p>'
+          . '<p>On your first login, you will be required to set a strong password immediately.</p>'
+          . '<p><a href="' . htmlspecialchars($loginUrl) . '">Open ETMS Login</a></p>'
+          . '<p>Royal Mabati Factory</p>';
 
-    return mail($toEmail, $subject, $body, $headers);
+    return smtpSendMail($toEmail, $toName, $subject, $htmlBody, $textBody);
+}
+
+function sendResetPasswordEmail(string $toEmail, string $toName, string $tempPassword): bool {
+    $subject  = "Password Reset - Royal Mabati Factory";
+    $loginUrl = rtrim(getenv('FRONTEND_URL') ?: 'http://localhost:3000', '/') . "/";
+
+    $textBody = "Dear {$toName},\n\n"
+          . "Your password has been reset by an administrator.\n\n"
+          . "Temporary Password: {$tempPassword}\n\n"
+          . "On your next login, you will be required to set a strong password immediately:\n"
+          . "{$loginUrl}\n\n"
+          . "Royal Mabati Factory";
+
+    $htmlBody = '<p>Dear ' . htmlspecialchars($toName) . ',</p>'
+          . '<p>Your password has been reset by an administrator.</p>'
+          . '<p><strong>Temporary Password:</strong> ' . htmlspecialchars($tempPassword) . '</p>'
+          . '<p>On your next login, you will be required to set a strong password immediately.</p>'
+          . '<p><a href="' . htmlspecialchars($loginUrl) . '">Open ETMS Login</a></p>'
+          . '<p>Royal Mabati Factory</p>';
+
+    return smtpSendMail($toEmail, $toName, $subject, $htmlBody, $textBody);
 }
 
 function logAudit(PDO $db, int $actorId, string $action, string $entity, ?int $entityId, string $details): void {
@@ -58,33 +82,27 @@ function logAudit(PDO $db, int $actorId, string $action, string $entity, ?int $e
 
 try {
     $db      = (new Database())->connect();
+    ensureMustChangePasswordColumn($db);
     $body    = json_decode(file_get_contents('php://input'), true) ?? [];
     $action  = $body['action'] ?? '';
     $actorId = (int) $_SESSION['user_id'];
 
-    /* ══════════════════════════════════════════
-       TOGGLE STATUS (Active ↔ Suspended)
-    ══════════════════════════════════════════ */
     if ($action === 'toggle_status') {
         $userId    = (int) ($body['userId'] ?? 0);
         $newStatus = $body['newStatus'] ?? '';
 
-        if (!in_array($newStatus, ['ACTIVE','SUSPENDED'])) {
+        if (!in_array($newStatus, ['ACTIVE','SUSPENDED'], true)) {
             throw new Exception("Invalid status.");
         }
 
         $stmt = $db->prepare("UPDATE users SET status = ?, updated_at = NOW() WHERE id = ?");
         $stmt->execute([$newStatus, $userId]);
 
-        logAudit($db, $actorId, 'toggle_status', 'users', $userId,
-            "Status changed to {$newStatus}");
+        logAudit($db, $actorId, 'toggle_status', 'users', $userId, "Status changed to {$newStatus}");
 
         ob_end_clean();
         echo json_encode(["success" => true, "message" => "Status updated."]);
 
-    /* ══════════════════════════════════════════
-       EDIT USER
-    ══════════════════════════════════════════ */
     } elseif ($action === 'edit_user') {
         $userId = (int) ($body['userId'] ?? 0);
         $name   = trim($body['name']   ?? '');
@@ -94,7 +112,6 @@ try {
 
         if (!$userId || !$name || !$email) throw new Exception("Missing required fields.");
 
-        /* Check email uniqueness */
         $dup = $db->prepare("SELECT id FROM users WHERE email = ? AND id != ?");
         $dup->execute([$email, $userId]);
         if ($dup->fetch()) throw new Exception("Email already in use.");
@@ -106,15 +123,11 @@ try {
         ");
         $stmt->execute([$name, $email, $roleId ?: null, $phone, $userId]);
 
-        logAudit($db, $actorId, 'edit_user', 'users', $userId,
-            "Updated name={$name}, email={$email}, role_id={$roleId}");
+        logAudit($db, $actorId, 'edit_user', 'users', $userId, "Updated name={$name}, email={$email}, role_id={$roleId}");
 
         ob_end_clean();
         echo json_encode(["success" => true, "message" => "User updated."]);
 
-    /* ══════════════════════════════════════════
-       SOFT DELETE (set EXITED)
-    ══════════════════════════════════════════ */
     } elseif ($action === 'delete_user') {
         $userId = (int) ($body['userId'] ?? 0);
         if (!$userId) throw new Exception("Invalid user.");
@@ -127,9 +140,6 @@ try {
         ob_end_clean();
         echo json_encode(["success" => true, "message" => "User deactivated."]);
 
-    /* ══════════════════════════════════════════
-       RESET PASSWORD
-    ══════════════════════════════════════════ */
     } elseif ($action === 'reset_password') {
         $userId = (int) ($body['userId'] ?? 0);
         if (!$userId) throw new Exception("Invalid user.");
@@ -139,36 +149,34 @@ try {
         $user = $userRow->fetch(PDO::FETCH_ASSOC);
         if (!$user) throw new Exception("User not found.");
 
-        $tempPass = bin2hex(random_bytes(5)); // 10-char temp password
+        $tempPass = bin2hex(random_bytes(5));
         $hashed   = password_hash($tempPass, PASSWORD_BCRYPT);
 
-        $stmt = $db->prepare("UPDATE users SET password = ?, updated_at = NOW() WHERE id = ?");
-        $stmt->execute([$hashed, $userId]);
+        $db->beginTransaction();
 
-        /* Send email */
-        $subject = "Password Reset – Royal Mabati Factory";
-        $msgBody = "Dear {$user['full_name']},\n\n"
-                 . "Your password has been reset by an administrator.\n\n"
-                 . "Temporary Password: {$tempPass}\n\n"
-                 . "Please log in and change your password immediately:\n"
-                 . APP_URL . "/login\n\n"
-                 . "Royal Mabati Factory";
+        try {
+            $stmt = $db->prepare("
+                UPDATE users
+                SET password = ?, must_change_password = 1, updated_at = NOW()
+                WHERE id = ?
+            ");
+            $stmt->execute([$hashed, $userId]);
 
-        $headers = "From: " . MAIL_FROM_NAME . " <" . MAIL_FROM . ">\r\n"
-                 . "Reply-To: " . MAIL_FROM . "\r\n"
-                 . "X-Mailer: PHP/" . phpversion();
-
-        mail($user['email'], $subject, $msgBody, $headers);
+            sendResetPasswordEmail($user['email'], $user['full_name'], $tempPass);
+            $db->commit();
+        } catch (Throwable $mailError) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw new Exception("Password reset email could not be sent. No changes were saved.");
+        }
 
         logAudit($db, $actorId, 'reset_password', 'users', $userId,
-            "Password reset email sent to {$user['email']}");
+            "Password reset email sent to {$user['email']}; strong password required on next login");
 
         ob_end_clean();
         echo json_encode(["success" => true, "message" => "Password reset. Email sent to {$user['email']}."]);
 
-    /* ══════════════════════════════════════════
-       INVITE NEW USER
-    ══════════════════════════════════════════ */
     } elseif ($action === 'invite_user') {
         $name       = trim($body['name']   ?? '');
         $email      = trim($body['email']  ?? '');
@@ -179,12 +187,10 @@ try {
         if (!$name || !$email || !$roleId) throw new Exception("Name, email and role are required.");
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) throw new Exception("Invalid email address.");
 
-        /* Check duplicate */
         $dup = $db->prepare("SELECT id FROM users WHERE email = ?");
         $dup->execute([$email]);
         if ($dup->fetch()) throw new Exception("A user with this email already exists.");
 
-        /* Generate employee code: RMF-XXXX */
         $lastCode = $db->query("
             SELECT employee_code FROM users
             WHERE employee_code LIKE 'RMF-%'
@@ -193,34 +199,40 @@ try {
         $nextNum  = $lastCode ? ((int) substr($lastCode, 4)) + 1 : 1;
         $empCode  = 'RMF-' . str_pad($nextNum, 4, '0', STR_PAD_LEFT);
 
-        /* Temp password */
         $tempPass = ucfirst(strtolower(explode('@', $email)[0])) . '@' . rand(100, 999);
         $hashed   = password_hash($tempPass, PASSWORD_BCRYPT);
 
-        /* Get role name */
         $roleRow = $db->prepare("SELECT name FROM roles WHERE id = ?");
         $roleRow->execute([$roleId]);
         $roleName = $roleRow->fetchColumn() ?: 'Staff';
 
-        /* Insert user */
-        $insert = $db->prepare("
-            INSERT INTO users (employee_code, full_name, email, password, phone, department, role_id, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
-        ");
-        $insert->execute([$empCode, $name, $email, $hashed, $phone, $department, $roleId]);
-        $newUserId = (int) $db->lastInsertId();
+        $db->beginTransaction();
 
-        /* Send invite email */
-        $sent = sendInviteEmail($email, $name, $tempPass, $roleName);
+        try {
+            $insert = $db->prepare("
+                INSERT INTO users (employee_code, full_name, email, password, phone, department, role_id, status, must_change_password)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 1)
+            ");
+            $insert->execute([$empCode, $name, $email, $hashed, $phone, $department, $roleId]);
+            $newUserId = (int) $db->lastInsertId();
+
+            sendInviteEmail($email, $name, $tempPass, $roleName);
+            $db->commit();
+        } catch (Throwable $mailError) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw new Exception("Invite email could not be sent. The user was not created.");
+        }
 
         logAudit($db, $actorId, 'invite_user', 'users', $newUserId,
-            "Invited {$name} ({$email}) as {$roleName}. Email sent: " . ($sent ? 'yes' : 'no'));
+            "Invited {$name} ({$email}) as {$roleName}. Email sent: yes. Strong password required on first login.");
 
         ob_end_clean();
         echo json_encode([
-            "success"     => true,
-            "message"     => "User {$name} created with code {$empCode}." . ($sent ? " Invite email sent." : " Email could not be sent — check mail config."),
-            "employeeCode"=> $empCode,
+            "success"      => true,
+            "message"      => "User {$name} created with code {$empCode}. Invite email sent with a temporary password. Strong password required on first login.",
+            "employeeCode" => $empCode,
         ]);
 
     } else {

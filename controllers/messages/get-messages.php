@@ -21,6 +21,7 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 require_once "../../config/db.php";
+require_once "../../helpers/communication-policy.php";
 use Config\Database;
 
 try {
@@ -28,20 +29,26 @@ try {
     $db     = (new Database())->connect();
     $userId = (int) $_SESSION['user_id'];
 
-    /* Fetch all messages received by this worker,
-       join sender's full_name from users table */
+    /* Fetch both sent and received messages for this user. */
     $stmt = $db->prepare("
         SELECT
             m.id,
             m.thread_id,
             m.sender_id,
+            m.receiver_id,
             m.message,
             m.is_read,
             m.created_at,
-            u.full_name AS sender_name
+            sender.full_name AS sender_name,
+            sender_roles.name AS sender_role,
+            receiver.full_name AS receiver_name,
+            receiver_roles.name AS receiver_role
         FROM  messages m
-        JOIN  users u ON u.id = m.sender_id
-        WHERE m.receiver_id = :user_id
+        JOIN  users sender ON sender.id = m.sender_id
+        LEFT  JOIN roles sender_roles ON sender_roles.id = sender.role_id
+        JOIN  users receiver ON receiver.id = m.receiver_id
+        LEFT  JOIN roles receiver_roles ON receiver_roles.id = receiver.role_id
+        WHERE m.receiver_id = :user_id OR m.sender_id = :user_id
         ORDER BY m.created_at DESC
     ");
 
@@ -55,15 +62,27 @@ try {
             'id'         => (string) $row['id'],
             'threadId'   => (string) $row['thread_id'],
             'senderId'   => (string) $row['sender_id'],
+            'receiverId' => (string) $row['receiver_id'],
             'sender'     => $row['sender_name'],
+            'senderRole' => ucfirst(normalizeCommunicationRole($row['sender_role'] ?? '')),
+            'receiver'   => $row['receiver_name'],
+            'receiverRole' => ucfirst(normalizeCommunicationRole($row['receiver_role'] ?? '')),
+            'direction'  => ((int) $row['sender_id'] === $userId) ? 'sent' : 'received',
+            'counterparty' => ((int) $row['sender_id'] === $userId) ? $row['receiver_name'] : $row['sender_name'],
+            'counterpartyRole' => ((int) $row['sender_id'] === $userId)
+                ? ucfirst(normalizeCommunicationRole($row['receiver_role'] ?? ''))
+                : ucfirst(normalizeCommunicationRole($row['sender_role'] ?? '')),
             'message'    => $row['message'],
-            'isRead'     => (bool)   $row['is_read'],
+            'isRead'     => ((int) $row['receiver_id'] === $userId) ? (bool) $row['is_read'] : true,
             'time'       => formatTime($row['created_at']),
             'rawTime'    => $row['created_at'],
         ];
     }
 
-    $unreadCount = count(array_filter($messages, fn($m) => !$m['isRead']));
+    $unreadCount = count(array_filter(
+        $messages,
+        fn($m) => $m['direction'] === 'received' && !$m['isRead']
+    ));
 
     ob_end_clean();
     echo json_encode([

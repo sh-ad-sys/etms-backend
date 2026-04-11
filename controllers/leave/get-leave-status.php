@@ -25,10 +25,32 @@ if (!isset($_SESSION['user_id'])) {
 require_once "../../config/db.php";
 use Config\Database;
 
+function ensureHrApprovalColumn(PDO $db): void
+{
+    static $checked = false;
+
+    if ($checked) {
+        return;
+    }
+
+    $column = $db->query("SHOW COLUMNS FROM leave_requests LIKE 'hr_approval'")->fetch(PDO::FETCH_ASSOC);
+
+    if (!$column) {
+        $db->exec("
+            ALTER TABLE leave_requests
+            ADD COLUMN hr_approval VARCHAR(20) NOT NULL DEFAULT 'PENDING'
+            AFTER manager_approval
+        ");
+    }
+
+    $checked = true;
+}
+
 try {
 
     $db     = (new Database())->connect();
     $userId = (int) $_SESSION['user_id'];
+    ensureHrApprovalColumn($db);
 
     /* Map DB enum → frontend label */
     $typeMap = [
@@ -54,6 +76,7 @@ try {
             lr.document_url,
             lr.supervisor_approval,
             lr.manager_approval,
+            lr.hr_approval,
             lr.final_status,
             lr.created_at,
             DATEDIFF(lr.end_date, lr.start_date) + 1 AS total_days
@@ -84,6 +107,7 @@ try {
             'status'             => $status,   // "Pending"|"Approved"|"Rejected"
             'supervisorApproval' => ucfirst(strtolower($row['supervisor_approval'])),
             'managerApproval'    => ucfirst(strtolower($row['manager_approval'])),
+            'hrApproval'         => ucfirst(strtolower($row['hr_approval'])),
             'hasDocument'        => !empty($row['document_url']),
             'appliedOn'          => date('Y-m-d', strtotime($row['created_at'])),
             'reviewedOn'         => null,

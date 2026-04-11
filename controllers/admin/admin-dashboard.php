@@ -54,9 +54,11 @@ try {
     ══════════════════════════════════════════ */
     $failedLogins = (int) $db->query("
         SELECT COUNT(*) FROM audit_logs
-        WHERE action LIKE '%failed%login%'
-        OR    action LIKE '%login_failed%'
-        AND   DATE(created_at) = '{$today}'
+        WHERE (
+            action LIKE '%failed%login%'
+            OR action LIKE '%login_failed%'
+        )
+        AND DATE(created_at) = '{$today}'
     ")->fetchColumn();
 
     /* ══════════════════════════════════════════
@@ -163,14 +165,20 @@ try {
        11. Shifts summary
     ══════════════════════════════════════════ */
     $shifts = $db->query("
-        SELECT id, name, start_time, end_time, grace_period FROM shifts ORDER BY start_time
+        SELECT id, name, start_time, end_time FROM shifts ORDER BY start_time
     ")->fetchAll(PDO::FETCH_ASSOC);
+
+    // Get grace period from compliance rules (system_settings)
+    $graceResult = $db->query("
+        SELECT value FROM system_settings WHERE setting_key = 'late_arrival_grace_minutes'
+    ")->fetchColumn();
+    $graceMinutes = $graceResult ? (int) $graceResult : 15;
 
     $shiftSummary = array_map(fn($s) => [
         'name'       => $s['name'],
         'startTime'  => date('h:i A', strtotime($s['start_time'])),
         'endTime'    => date('h:i A', strtotime($s['end_time'])),
-        'grace'      => (int) $s['grace_period'],
+        'grace'      => $graceMinutes,
     ], $shifts);
 
     ob_end_clean();
