@@ -54,9 +54,11 @@ try {
     ══════════════════════════════════════════ */
     $failedLogins = (int) $db->query("
         SELECT COUNT(*) FROM audit_logs
-        WHERE action LIKE '%failed%login%'
-        OR    action LIKE '%login_failed%'
-        AND   DATE(created_at) = '{$today}'
+        WHERE (
+            action LIKE '%failed%login%'
+            OR action LIKE '%login_failed%'
+        )
+        AND DATE(created_at) = '{$today}'
     ")->fetchColumn();
 
     /* ══════════════════════════════════════════

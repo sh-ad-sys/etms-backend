@@ -48,17 +48,25 @@ function ensureHrApprovalColumn(PDO $db): void
 }
 
 try {
+    if (!isset($_SESSION['user']['role'])) {
+        throw new Exception("Unauthorized");
+    }
+
+    $role = strtoupper(trim((string) $_SESSION['user']['role']));
+    if ($role !== 'HR' && $role !== 'ADMIN') {
+        throw new Exception("Forbidden");
+    }
 
     $body    = json_decode(file_get_contents("php://input"), true) ?? [];
-    $id      = (int)   ($body['id']      ?? 0);
-    $action  = strtoupper(trim($body['action']  ?? ''));  // APPROVED | REJECTED
-    $remarks = trim($body['remarks'] ?? '');
+    $id      = (int) ($body['id'] ?? 0);
+    $action  = strtoupper(trim($body['action'] ?? ''));
 
     if ($id <= 0) {
         ob_end_clean(); http_response_code(400);
         echo json_encode(["success" => false, "error" => "Invalid request ID"]); exit;
     }
-    if (!in_array($action, ['APPROVED', 'REJECTED'])) {
+
+    if (!in_array($action, ['APPROVED', 'REJECTED'], true)) {
         ob_end_clean(); http_response_code(400);
         echo json_encode(["success" => false, "error" => "Action must be APPROVED or REJECTED"]); exit;
     }
@@ -66,8 +74,11 @@ try {
     $db = (new Database())->connect();
     ensureHrApprovalColumn($db);
 
-    /* Check request exists and is still pending */
-    $check = $db->prepare("SELECT id, supervisor_approval FROM leave_requests WHERE id = ?");
+    $check = $db->prepare("
+        SELECT id, supervisor_approval, manager_approval, hr_approval
+        FROM leave_requests
+        WHERE id = ?
+    ");
     $check->execute([$id]);
     $row = $check->fetch(PDO::FETCH_ASSOC);
 
@@ -75,21 +86,24 @@ try {
         ob_end_clean(); http_response_code(404);
         echo json_encode(["success" => false, "error" => "Leave request not found"]); exit;
     }
-    if ($row['supervisor_approval'] !== 'PENDING') {
+
+    if ($row['supervisor_approval'] !== 'APPROVED' || $row['manager_approval'] !== 'APPROVED') {
+        ob_end_clean(); http_response_code(409);
+        echo json_encode(["success" => false, "error" => "Supervisor and manager approvals are required first"]); exit;
+    }
+
+    if ($row['hr_approval'] !== 'PENDING') {
         ob_end_clean(); http_response_code(409);
         echo json_encode(["success" => false, "error" => "This request has already been reviewed"]); exit;
     }
 
-    /* Update supervisor_approval + final_status
-       final_status = REJECTED immediately if supervisor rejects
-       final_status = PENDING still (awaiting manager) if supervisor approves */
-    $finalStatus = $action === 'REJECTED' ? 'REJECTED' : 'PENDING';
+    $finalStatus = $action === 'APPROVED' ? 'APPROVED' : 'REJECTED';
 
     $stmt = $db->prepare("
         UPDATE leave_requests
         SET
-            supervisor_approval = ?,
-            final_status        = ?
+            hr_approval = ?,
+            final_status = ?
         WHERE id = ?
     ");
     $stmt->execute([$action, $finalStatus, $id]);
@@ -97,11 +111,19 @@ try {
     ob_end_clean();
     echo json_encode([
         "success" => true,
-        "message" => "Leave request " . strtolower($action) . " successfully.",
+        "message" => $action === 'APPROVED'
+            ? "Leave request approved by HR."
+            : "Leave request rejected by HR.",
         "action"  => $action,
     ]);
-
 } catch (Throwable $e) {
-    ob_end_clean(); http_response_code(500);
+    $statusCode = 500;
+    if ($e->getMessage() === 'Unauthorized') {
+        $statusCode = 401;
+    } elseif ($e->getMessage() === 'Forbidden') {
+        $statusCode = 403;
+    }
+
+    ob_end_clean(); http_response_code($statusCode);
     echo json_encode(["success" => false, "error" => $e->getMessage()]);
 }

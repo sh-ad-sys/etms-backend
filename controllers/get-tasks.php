@@ -18,13 +18,15 @@ if (!isset($_SESSION['user_id'])) {
     echo json_encode(["success" => false, "error" => "Not authenticated"]); exit;
 }
 
+$userId = (int) $_SESSION['user_id'];
+session_write_close();
+
 require_once "../config/db.php";
 use Config\Database;
 
 try {
 
     $db     = (new Database())->connect();
-    $userId = (int) $_SESSION['user_id'];
 
     $status  = $_GET['status'] ?? 'all';
     $allowed = ['pending', 'in_progress', 'completed', 'all'];

@@ -38,6 +38,7 @@ try {
     /* ================= SESSION USER ================= */
 
     $createdBy = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 1;
+    session_write_close();
 
     /* ================= GENERATE TOKEN ================= */
 

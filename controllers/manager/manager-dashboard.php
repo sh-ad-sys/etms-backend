@@ -213,7 +213,7 @@ try {
     if ((int)$pendingLeave > 0) {
         $insights[] = [
             'type'    => 'info',
-            'message' => "{$pendingLeave} leave request(s) approved by supervisor and awaiting your final approval.",
+            'message' => "{$pendingLeave} leave request(s) approved by supervisor and awaiting your review before HR final approval.",
         ];
     }
 

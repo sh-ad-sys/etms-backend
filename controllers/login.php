@@ -14,6 +14,20 @@ header("Access-Control-Allow-Headers: Content-Type, Authorization");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
 header("Content-Type: application/json");
 
+/* ================= SESSION ================= */
+
+ini_set('session.cookie_samesite', 'Lax');
+ini_set('session.cookie_secure', 0);
+session_set_cookie_params([
+    'lifetime' => 0,
+    'path' => '/',
+    'domain' => 'localhost',
+    'secure' => false,
+    'httponly' => true,
+    'samesite' => 'Lax',
+]);
+session_start();
+
 /* ================= PRE-FLIGHT ================= */
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -27,6 +41,7 @@ require_once "../config/db.php";
 require_once "../config/jwt.php";
 require_once "../models/User.php";
 require_once "../helpers/device-detect.php";
+require_once "../helpers/user-password-policy.php";
 
 use Config\Database;
 use Config\JWT;
@@ -46,6 +61,7 @@ if (!isset($data['email'], $data['password'])) {
 }
 
 $db        = (new Database())->connect();
+ensureMustChangePasswordColumn($db);
 $userModel = new User($db);
 
 /* ================= FIND USER ================= */
@@ -53,6 +69,15 @@ $userModel = new User($db);
 $user = $userModel->findByEmail($data['email']);
 
 if (!$user) {
+    try {
+        $audit = $db->prepare("
+            INSERT INTO audit_logs (user_id, action, entity, entity_id, details)
+            VALUES (NULL, 'login_failed', 'auth', NULL, ?)
+        ");
+        $audit->execute(["Failed login attempt for unknown email {$data['email']}"]);
+    } catch (Throwable $e) {
+        error_log("Audit log error: " . $e->getMessage());
+    }
     http_response_code(401);
     echo json_encode([
         "success" => false,
@@ -64,12 +89,39 @@ if (!$user) {
 /* ================= VERIFY PASSWORD ================= */
 
 if (!password_verify($data['password'], $user['password'])) {
+    try {
+        $audit = $db->prepare("
+            INSERT INTO audit_logs (user_id, action, entity, entity_id, details)
+            VALUES (?, 'login_failed', 'auth', ?, ?)
+        ");
+        $audit->execute([
+            (int) $user['id'],
+            (int) $user['id'],
+            "Failed login attempt for {$user['email']}"
+        ]);
+    } catch (Throwable $e) {
+        error_log("Audit log error: " . $e->getMessage());
+    }
     http_response_code(401);
     echo json_encode([
         "success" => false,
         "error"   => "Invalid credentials"
     ]);
     exit;
+}
+
+try {
+    $audit = $db->prepare("
+        INSERT INTO audit_logs (user_id, action, entity, entity_id, details)
+        VALUES (?, 'login_success', 'auth', ?, ?)
+    ");
+    $audit->execute([
+        (int) $user['id'],
+        (int) $user['id'],
+        "Successful login for {$user['email']}"
+    ]);
+} catch (Throwable $e) {
+    error_log("Audit log error: " . $e->getMessage());
 }
 
 /* ================= CHECK STATUS ================= */
@@ -124,6 +176,17 @@ $payload = [
 // Generate JWT token
 $token = JWT::encode($payload);
 
+session_regenerate_id(true);
+$_SESSION['user_id'] = (int) $user['id'];
+$_SESSION['user'] = [
+    'id' => (int) $user['id'],
+    'email' => $user['email'],
+    'full_name' => $user['full_name'],
+    'role' => $user['role_name'],
+    'must_change_password' => (int) ($user['must_change_password'] ?? 0),
+];
+session_write_close();
+
 /* ================= SUCCESS RESPONSE ================= */
 
 echo json_encode([
@@ -135,5 +198,6 @@ echo json_encode([
         "email"    => $user['email'],
         "fullName" => $user['full_name'],
         "role"     => $user['role_name'],
-    ]
+    ],
+    "mustChangePassword" => (bool) ($user['must_change_password'] ?? 0),
 ]);

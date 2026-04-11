@@ -36,8 +36,8 @@ try {
 
     $stmt = $db->prepare("
         INSERT INTO id_replacement_requests
-        (user_id, notes, file_path)
-        VALUES (?,?,?)
+        (user_id, notes, file_path, status, created_at)
+        VALUES (?,?,?,'PENDING',NOW())
     ");
 
     $stmt->execute([

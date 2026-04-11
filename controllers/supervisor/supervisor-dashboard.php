@@ -34,7 +34,7 @@ try {
     /* Staff Present today */
     $presentStmt = $db->prepare("
         SELECT COUNT(DISTINCT user_id) AS cnt
-        FROM   attendance
+        FROM   v_attendance
         WHERE  DATE(check_in) = ?
         AND    status IN ('PRESENT', 'LATE')
     ");
@@ -44,7 +44,7 @@ try {
     /* Late today */
     $lateStmt = $db->prepare("
         SELECT COUNT(DISTINCT user_id) AS cnt
-        FROM   attendance
+        FROM   v_attendance
         WHERE  DATE(check_in) = ?
         AND    status = 'LATE'
     ");
