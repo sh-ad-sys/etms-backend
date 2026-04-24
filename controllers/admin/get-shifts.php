@@ -52,6 +52,7 @@ try {
         ];
     }, $stmt->fetchAll(PDO::FETCH_ASSOC));
 
+<<<<<<< HEAD
     // Fetch compliance rules from system_settings
     $settingsStmt = $db->query("
         SELECT setting_key, value FROM system_settings
@@ -72,11 +73,16 @@ try {
         elseif ($key === 'late_arrival_grace_minutes') $complianceRules['graceMinutes'] = $val;
     }
 
+=======
+>>>>>>> 812dd5c7482ff03be52102d43bb633ef7a2305c8
     ob_end_clean();
     echo json_encode([
         "success" => true,
         "shifts" => $shifts,
+<<<<<<< HEAD
         "complianceRules" => $complianceRules,
+=======
+>>>>>>> 812dd5c7482ff03be52102d43bb633ef7a2305c8
     ]);
 } catch (Throwable $e) {
     ob_end_clean(); http_response_code(500);

@@ -12,12 +12,36 @@ function login_log($message) {
 login_log('Request started');
 
 $allowedOrigin = getenv('CORS_ORIGIN') ?: 'http://localhost:3000';
+<<<<<<< HEAD
 header('Access-Control-Allow-Origin: ' . $allowedOrigin);
 header('Access-Control-Allow-Credentials: true');
 header('Access-Control-Allow-Headers: Content-Type, Authorization');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
 header('Content-Type: application/json');
 login_log('Headers sent');
+=======
+header("Access-Control-Allow-Origin: " . $allowedOrigin);
+header("Access-Control-Allow-Credentials: true");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
+header("Access-Control-Allow-Methods: POST, OPTIONS");
+header("Content-Type: application/json");
+
+/* ================= SESSION ================= */
+
+ini_set('session.cookie_samesite', 'Lax');
+ini_set('session.cookie_secure', 0);
+session_set_cookie_params([
+    'lifetime' => 0,
+    'path' => '/',
+    'domain' => 'localhost',
+    'secure' => false,
+    'httponly' => true,
+    'samesite' => 'Lax',
+]);
+session_start();
+
+/* ================= PRE-FLIGHT ================= */
+>>>>>>> 812dd5c7482ff03be52102d43bb633ef7a2305c8
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
@@ -34,11 +58,19 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
+<<<<<<< HEAD
 require_once '../config/db.php';
 require_once '../config/jwt.php';
 require_once '../models/User.php';
 require_once '../helpers/device-detect.php';
 login_log('Dependencies loaded');
+=======
+require_once "../config/db.php";
+require_once "../config/jwt.php";
+require_once "../models/User.php";
+require_once "../helpers/device-detect.php";
+require_once "../helpers/user-password-policy.php";
+>>>>>>> 812dd5c7482ff03be52102d43bb633ef7a2305c8
 
 use Config\Database;
 use Config\JWT;
@@ -56,10 +88,15 @@ if (!is_array($data) || !isset($data['email'], $data['password'])) {
     exit;
 }
 
+<<<<<<< HEAD
 login_log('Connecting to database');
 $db = (new Database())->connect();
 login_log('Database connected');
 
+=======
+$db        = (new Database())->connect();
+ensureMustChangePasswordColumn($db);
+>>>>>>> 812dd5c7482ff03be52102d43bb633ef7a2305c8
 $userModel = new User($db);
 login_log('Looking up user');
 $user = $userModel->findByEmail($data['email']);
@@ -67,18 +104,27 @@ login_log($user ? 'User found' : 'User not found');
 
 if (!$user) {
     try {
+<<<<<<< HEAD
         login_log('Writing failed-login audit for unknown email');
+=======
+>>>>>>> 812dd5c7482ff03be52102d43bb633ef7a2305c8
         $audit = $db->prepare("
             INSERT INTO audit_logs (user_id, action, entity, entity_id, details)
             VALUES (NULL, 'login_failed', 'auth', NULL, ?)
         ");
         $audit->execute(["Failed login attempt for unknown email {$data['email']}"]);
+<<<<<<< HEAD
         login_log('Unknown-email audit written');
     } catch (Throwable $e) {
         error_log('Audit log error: ' . $e->getMessage());
         login_log('Unknown-email audit failed: ' . $e->getMessage());
     }
 
+=======
+    } catch (Throwable $e) {
+        error_log("Audit log error: " . $e->getMessage());
+    }
+>>>>>>> 812dd5c7482ff03be52102d43bb633ef7a2305c8
     http_response_code(401);
     echo json_encode([
         'success' => false,
@@ -90,7 +136,10 @@ if (!$user) {
 login_log('Verifying password');
 if (!password_verify($data['password'], $user['password'])) {
     try {
+<<<<<<< HEAD
         login_log('Writing failed-login audit for known user');
+=======
+>>>>>>> 812dd5c7482ff03be52102d43bb633ef7a2305c8
         $audit = $db->prepare("
             INSERT INTO audit_logs (user_id, action, entity, entity_id, details)
             VALUES (?, 'login_failed', 'auth', ?, ?)
@@ -100,12 +149,18 @@ if (!password_verify($data['password'], $user['password'])) {
             (int) $user['id'],
             "Failed login attempt for {$user['email']}"
         ]);
+<<<<<<< HEAD
         login_log('Known-user failed-login audit written');
     } catch (Throwable $e) {
         error_log('Audit log error: ' . $e->getMessage());
         login_log('Known-user failed-login audit failed: ' . $e->getMessage());
     }
 
+=======
+    } catch (Throwable $e) {
+        error_log("Audit log error: " . $e->getMessage());
+    }
+>>>>>>> 812dd5c7482ff03be52102d43bb633ef7a2305c8
     http_response_code(401);
     echo json_encode([
         'success' => false,
@@ -114,6 +169,36 @@ if (!password_verify($data['password'], $user['password'])) {
     exit;
 }
 
+<<<<<<< HEAD
+=======
+try {
+    $audit = $db->prepare("
+        INSERT INTO audit_logs (user_id, action, entity, entity_id, details)
+        VALUES (?, 'login_success', 'auth', ?, ?)
+    ");
+    $audit->execute([
+        (int) $user['id'],
+        (int) $user['id'],
+        "Successful login for {$user['email']}"
+    ]);
+} catch (Throwable $e) {
+    error_log("Audit log error: " . $e->getMessage());
+}
+
+/* ================= CHECK STATUS ================= */
+
+if ($user['status'] !== "ACTIVE") {
+    http_response_code(403);
+    echo json_encode([
+        "success" => false,
+        "error"   => "Account not active"
+    ]);
+    exit;
+}
+
+/* ================= RECORD DEVICE ================= */
+
+>>>>>>> 812dd5c7482ff03be52102d43bb633ef7a2305c8
 try {
     login_log('Writing success audit');
     $audit = $db->prepare("
@@ -175,6 +260,7 @@ $payload = [
 $token = JWT::encode($payload);
 login_log('JWT generated');
 
+<<<<<<< HEAD
 ini_set('session.cookie_samesite', 'Lax');
 ini_set('session.cookie_secure', 0);
 session_set_cookie_params([
@@ -188,6 +274,8 @@ session_set_cookie_params([
 
 session_start();
 login_log('Session started');
+=======
+>>>>>>> 812dd5c7482ff03be52102d43bb633ef7a2305c8
 session_regenerate_id(true);
 $_SESSION['user_id'] = (int) $user['id'];
 $_SESSION['user'] = [
@@ -198,6 +286,7 @@ $_SESSION['user'] = [
     'must_change_password' => (int) ($user['must_change_password'] ?? 0),
 ];
 session_write_close();
+<<<<<<< HEAD
 login_log('Session written and closed');
 
 echo json_encode([
@@ -211,6 +300,22 @@ echo json_encode([
         'role' => $user['role_name'],
     ],
     'mustChangePassword' => (bool) ($user['must_change_password'] ?? 0),
+=======
+
+/* ================= SUCCESS RESPONSE ================= */
+
+echo json_encode([
+    "success" => true,
+    "message" => "Login successful",
+    "token"   => $token,
+    "user"    => [
+        "id"       => $user['id'],
+        "email"    => $user['email'],
+        "fullName" => $user['full_name'],
+        "role"     => $user['role_name'],
+    ],
+    "mustChangePassword" => (bool) ($user['must_change_password'] ?? 0),
+>>>>>>> 812dd5c7482ff03be52102d43bb633ef7a2305c8
 ]);
 login_log('Response sent');
 ?>

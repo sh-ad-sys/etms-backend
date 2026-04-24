@@ -53,6 +53,10 @@ try {
             al.entity,
             al.details,
             al.created_at,
+<<<<<<< HEAD
+=======
+            al.ip_address,
+>>>>>>> 812dd5c7482ff03be52102d43bb633ef7a2305c8
             u.email
         FROM audit_logs al
         LEFT JOIN users u ON u.id = al.user_id
@@ -66,7 +70,11 @@ try {
             "user" => $row['email'] ?: 'System',
             "action" => $row['action'] ?: 'Unknown action',
             "module" => $row['entity'] ?: 'General',
+<<<<<<< HEAD
             "ip" => 'System',
+=======
+            "ip" => $row['ip_address'] ?: 'IP unavailable',
+>>>>>>> 812dd5c7482ff03be52102d43bb633ef7a2305c8
             "time" => auditRelativeTime($row['created_at'] ?? null),
             "severity" => auditSeverity((string) ($row['action'] ?? '')),
             "createdAt" => $row['created_at'],
